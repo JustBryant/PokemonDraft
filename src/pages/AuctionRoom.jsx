@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Trophy, Share2, Users, Banknote, Play, Square, Settings, Link as LinkIcon, UserPlus, Radio, Download, ExternalLink } from 'lucide-react';
+import { Trophy, Share2, Users, Banknote, Play, Square, Settings, Link as LinkIcon, UserPlus, Radio, Download, ExternalLink, Zap } from 'lucide-react';
 import { PokemonCard } from '../components/PokemonCard';
 import { PlayerList } from '../components/PlayerList';
 import { AdminPanel } from '../components/AdminPanel';
@@ -99,45 +99,47 @@ export default function AuctionRoom() {
     }
   };
 
-  const handleJoin = (e) => {
+  const handleJoin = async (e) => {
     e.preventDefault();
-    if (!tempName.trim()) return;
+    const cleanName = tempName.trim();
+    if (!cleanName) return;
+    
+    // Check if player already exists in the room list
+    const existingPlayer = players.find(p => p.name.toLowerCase() === cleanName.toLowerCase());
     
     const isForcedNew = new URLSearchParams(window.location.search).get('new_player') === 'true';
-    const newState = { ...roomState, playerName: tempName.trim(), isHost: false };
+    const newState = { 
+      ...roomState, 
+      playerName: existingPlayer ? existingPlayer.name : cleanName, 
+      isHost: false,
+      isParticipating: !!existingPlayer
+    };
+
     setRoomState(newState);
     
-    // If testing with multiple players in one browser, use a unique key for each
+    // Use the name they type or the exact case-match from the server
+    const sessionName = existingPlayer ? existingPlayer.name : cleanName;
     const sessionKey = isForcedNew 
-      ? `poke_session_${roomId}_${tempName.trim()}` 
+      ? `poke_session_${roomId}_${sessionName}` 
       : `poke_session_${roomId}`;
       
     localStorage.setItem(sessionKey, JSON.stringify(newState));
     setHasJoined(true);
     
-    // Explicitly add to local player list immediately
-    const roomKey = `poke_room_${roomId}_players`;
-    const currentList = JSON.parse(localStorage.getItem(roomKey) || '[]');
-    if (!currentList.find(p => p.name === tempName.trim())) {
+    // Only add to Supabase if they don't exist yet
+    if (!existingPlayer) {
       const globalStartingMoney = JSON.parse(localStorage.getItem(`poke_room_${roomId}_starting_money`) || '1000');
       const newPlayer = {
         id: `${Date.now()}-${Math.random()}`,
-        name: tempName.trim(),
+        name: sessionName,
         balance: globalStartingMoney,
         party: [],
         isHost: false
       };
-      const updated = [...currentList, newPlayer];
-      localStorage.setItem(roomKey, JSON.stringify(updated));
-      setPlayers(updated);
+      
+      const updated = [...players, newPlayer];
+      await updateRoomState({ participants: updated });
     }
-
-    // Notify host via P2P
-    try {
-      const bc = new BroadcastChannel(`poke_auction_${roomId}`);
-      bc.postMessage({ type: 'PLAYER_JOINED', data: { name: tempName.trim() } });
-      bc.close();
-    } catch (err) {}
   };
 
   // Update showHostSetup when isAuctionStarted changes
@@ -449,6 +451,18 @@ export default function AuctionRoom() {
             setIsBiddingActive(data.is_active);
             setIsAuctionStarted(data.is_started);
             setHistory(data.history || []);
+            setNominationOrder(data.nomination_order || []);
+            if (data.nominee_index !== undefined) setCurrentNomineeIndex(data.nominee_index);
+            if (data.is_descending !== undefined) setIsSnakeDescending(data.is_descending);
+            if (data.actual_round !== undefined) setActualRound(data.actual_round);
+            if (data.starting_bid !== undefined) setStartingBid(data.starting_bid);
+            if (data.timer_duration !== undefined) setTimerDuration(data.timer_duration);
+            if (data.max_pokemon !== undefined) setMaxPokemon(data.max_pokemon);
+            if (data.time_left !== undefined) setTimeLeft(data.time_left);
+            if (data.is_finalized !== undefined) setIsDraftFinalized(data.is_finalized);
+            if (data.starting_money !== undefined) {
+              setRoomState(prev => ({ ...prev, startingMoney: data.starting_money }));
+            }
           }
         }).subscribe();
       } catch (err) {
@@ -1132,9 +1146,15 @@ export default function AuctionRoom() {
 
   const copyLink = () => {
     const baseUrl = window.location.origin + window.location.pathname;
+    navigator.clipboard.writeText(baseUrl);
+    alert(`Invite Link copied! Share this with your friends to let them join the room.`);
+  };
+
+  const copyTestLink = () => {
+    const baseUrl = window.location.origin + window.location.pathname;
     const testUrl = `${baseUrl}?new_player=true`;
     navigator.clipboard.writeText(testUrl);
-    alert(`Test Link copied! This link lets you join as a new player even in the same browser.`);
+    alert(`Test Link copied! Only use this for opening a second window on YOUR computer for testing.`);
   };
 
   if (!hasJoined) {
@@ -1158,7 +1178,9 @@ export default function AuctionRoom() {
             />
           </div>
           <button className="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-500/10">
-            Enter Room
+            {players.some(p => p.name.toLowerCase() === tempName.trim().toLowerCase()) 
+              ? `Rejoin as ${tempName.trim()}` 
+              : 'Enter Room'}
           </button>
           
           <div className="pt-4 border-t border-slate-700">
@@ -1273,6 +1295,16 @@ export default function AuctionRoom() {
           >
             <LinkIcon className="w-4 h-4" /> Copy Invite Link
           </button>
+
+          {roomState.isHost && (
+            <button 
+              onClick={copyTestLink}
+              title="Copy link for testing multiple players in this browser"
+              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-bold transition-colors border border-slate-700"
+            >
+              <Zap className="w-4 h-4 text-yellow-500" /> Test Link
+            </button>
+          )}
           
           <button 
             onClick={() => setShowPoolModal(true)}
