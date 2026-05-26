@@ -1216,19 +1216,6 @@ export default function AuctionRoom() {
               ? `Rejoin as ${tempName.trim()}` 
               : 'Enter Room'}
           </button>
-          
-          <div className="pt-4 border-t border-slate-700">
-            <button 
-              type="button"
-              onClick={() => {
-                setRoomState({ ...roomState, isHost: true, playerName: 'Host' });
-                setHasJoined(true);
-              }}
-              className="w-full text-slate-500 text-xs hover:text-slate-300 underline transition-colors"
-            >
-              Wait, I'm the host - take me to setup
-            </button>
-          </div>
         </form>
       </div>
     );
