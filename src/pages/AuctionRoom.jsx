@@ -16,10 +16,30 @@ export default function AuctionRoom() {
   const [roomState, setRoomState] = useState(() => {
     // If the URL has ?new_player=true, ignore existing session to allow multiple testers in one browser
     const isForcedNew = new URLSearchParams(window.location.search).get('new_player') === 'true';
-    const saved = !isForcedNew ? localStorage.getItem(`poke_session_${roomId}`) : null;
     
-    if (saved) return JSON.parse(saved);
-    return location.state || { isHost: false, playerName: '', startingMoney: 1000 };
+    // 1. Try URL parameters first (e.g., from email/links)
+    const urlParams = new URLSearchParams(window.location.search);
+    const hostFromUrl = urlParams.get('host') === 'true';
+
+    // 2. Try the persistent local session
+    const saved = !isForcedNew ? localStorage.getItem(`poke_session_${roomId}`) : null;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Clean up URL if we successfully restored a session
+      if (window.location.search && !isForcedNew) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+      return parsed;
+    }
+    
+    // 3. Try the state passed from LandingPage.jsx
+    if (location.state) {
+      localStorage.setItem(`poke_session_${roomId}`, JSON.stringify(location.state));
+      return location.state;
+    }
+
+    // 4. Default to spectator
+    return { isHost: hostFromUrl, playerName: '', startingMoney: 1000 };
   });
 
   // Core Auction State
@@ -80,7 +100,7 @@ export default function AuctionRoom() {
     // Only check this for the host. 
     // Everyone else (players) must NEVER see the setup screen.
     const urlParams = new URL(window.location.href).searchParams;
-    const isHostFromUrl = urlParams.get('new_player') !== 'true' && (JSON.parse(localStorage.getItem(`poke_session_${roomId}`) || '{}').isHost);
+    const isHostFromUrl = urlParams.get('host') === 'true' || (JSON.parse(localStorage.getItem(`poke_session_${roomId}`) || '{}').isHost);
     
     if (!isHostFromUrl) return false;
 
@@ -90,7 +110,12 @@ export default function AuctionRoom() {
   });
   const [showAdmin, setShowAdmin] = useState(false);
   const [showPoolModal, setShowPoolModal] = useState(false);
-  const [hasJoined, setHasJoined] = useState(!!roomState.playerName);
+  const [hasJoined, setHasJoined] = useState(() => {
+    if (roomState.playerName) return true;
+    // Special case: If host creates a room via navigate state, they have joined
+    if (roomState.isHost && (location.state?.isHost)) return true;
+    return false;
+  });
   const [tempName, setTempName] = useState('');
 
   const toggleSetup = () => {

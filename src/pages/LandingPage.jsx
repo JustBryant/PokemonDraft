@@ -27,7 +27,7 @@ export default function LandingPage() {
 
   const createGame = () => {
     const roomId = Math.random().toString(36).substring(7);
-    navigate(`/auction/${roomId}`, { 
+    navigate(`/auction/${roomId}?host=true`, { 
       state: { 
         isHost: true, 
         playerName: 'Host'
