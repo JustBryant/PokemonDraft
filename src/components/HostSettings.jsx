@@ -268,6 +268,23 @@ export function HostSettings({
             Start Draft
           </button>
         </div>
+
+        <div className="mt-8 border-t border-red-500/20 pt-6">
+          <button
+            onClick={async () => {
+              if (window.confirm('PERMANENTLY DELETE AUCTION? This will kick everyone and delete the database entry.')) {
+                const { supabase } = await import('../lib/supabase');
+                const roomId = window.location.pathname.split('/').pop();
+                await supabase.from('rooms').delete().eq('id', roomId);
+                window.location.href = '/';
+              }
+            }}
+            className="w-full bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white py-3 rounded-xl font-bold transition-all border border-red-500/20 flex items-center justify-center gap-2"
+          >
+            <X className="w-5 h-5" /> Destroy Auction
+          </button>
+          <p className="text-[10px] text-red-500/50 uppercase text-center mt-2 italic">DANGER: Immediate deletion of all data</p>
+        </div>
       </div>
     </div>
   );

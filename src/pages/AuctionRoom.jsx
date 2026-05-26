@@ -500,8 +500,14 @@ export default function AuctionRoom() {
         let active = JSON.parse(localStorage.getItem(lastActiveKey) || '{}');
         active[roomState.playerName] = Date.now();
         localStorage.setItem(lastActiveKey, JSON.stringify(active));
+
+        // Sync heartbeat to Supabase to prevent auto-cleanup
+        if (isSupabaseConfigured) {
+          supabase.from('rooms').update({ last_activity_at: new Date().toISOString() }).eq('id', roomId)
+            .then(() => {}); // Fire and forget
+        }
       }
-    }, 2000);
+    }, 15000); // Pulse every 15s for the live DB
 
     const syncInterval = setInterval(() => {
       // Local Sync runs regardless of Supabase configuration
@@ -707,7 +713,10 @@ export default function AuctionRoom() {
 
     // 2. Database (Production Sync only)
     if (isSupabaseConfigured) {
-      await db.update('rooms', roomId, updates);
+      await db.update('rooms', roomId, {
+        ...updates,
+        last_activity_at: new Date().toISOString()
+      });
     }
   };
 

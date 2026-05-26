@@ -21,7 +21,9 @@ CREATE TABLE rooms (
   starting_bid INTEGER DEFAULT 0,
   max_pokemon INTEGER DEFAULT 6,
   time_left INTEGER DEFAULT 30,
-  is_finalized BOOLEAN DEFAULT FALSE
+  is_finalized BOOLEAN DEFAULT FALSE,
+  last_activity_at TIMESTAMPTZ DEFAULT NOW(),
+  starting_money INTEGER DEFAULT 1000
 );
 
 -- Enable Realtime

@@ -1,10 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, Plus, Users, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 export default function LandingPage() {
   const navigate = useNavigate();
+
+  // Cleanup old auctions on load
+  useEffect(() => {
+    const cleanup = async () => {
+      try {
+        // Delete rooms with no activity for more than 1 hour
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { error } = await supabase
+          .from('rooms')
+          .delete()
+          .lt('last_activity_at', oneHourAgo);
+        
+        if (!error) console.log('[Purge] Cleaned up inactive rooms.');
+      } catch (e) {
+        console.error('Cleanup failed', e);
+      }
+    };
+    cleanup();
+  }, []);
 
   const createGame = () => {
     const roomId = Math.random().toString(36).substring(7);
