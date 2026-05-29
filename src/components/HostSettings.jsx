@@ -23,15 +23,33 @@ export function HostSettings({
   const [loading, setLoading] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
 
+  const normalizePokemonName = (input) => {
+    let name = input.toLowerCase().trim().replace(/\s+/g, ' ');
+    if (!name.includes(' ')) return name;
+
+    const parts = name.split(' ');
+    const prefixes = ['hisuian', 'alolan', 'galarian', 'paldean', 'mega', 'primal', 'origin', 'gmax'];
+    
+    // If first word is a prefix (e.g., "Hisuian Zoroark" -> "zoroark-hisuian")
+    if (prefixes.includes(parts[0])) {
+      const base = parts.slice(1).join('-');
+      return `${base}-${parts[0]}`;
+    }
+    
+    // Default: join with hyphens (e.g., "Iron Valiant" -> "iron-valiant")
+    return parts.join('-');
+  };
+
   const searchPokemon = async () => {
     if (!searchTerm) return;
     setLoading(true);
     try {
-      const response = await axios.get(`https://pokeapi.co/api/v2/pokemon/${searchTerm.toLowerCase().trim()}`);
+      const normalizedName = normalizePokemonName(searchTerm);
+      const response = await axios.get(`https://pokeapi.co/api/v2/pokemon/${normalizedName}`);
       const data = response.data;
       setSearchResults([{
         id: data.id,
-        name: data.name.charAt(0).toUpperCase() + data.name.slice(1),
+        name: data.name.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' '),
         image: data.sprites.other['official-artwork'].front_default,
         types: data.types.map(t => t.type.name),
         basePrice: startingBid
@@ -46,29 +64,11 @@ export function HostSettings({
   const handleBulkAdd = async () => {
     if (!bulkInput.trim()) return;
     setBulkLoading(true);
-    const names = bulkInput.split(/[\n,]+/).map(n => n.trim().toLowerCase()).filter(n => n);
+    const names = bulkInput.split(/[\n,]+/).map(n => n.trim()).filter(n => n);
     const added = [];
     
-    for (let name of names) {
-      // Handle spaces for forms like "Hisuian Zoroark" -> "zoroark-hisuian"
-      // PokeAPI uses hyphenated names for forms. Common ones:
-      // "Hisuian X" -> "x-hisuian"
-      // "Alolan X" -> "x-alolan"
-      // "Galarian X" -> "x-galarian"
-      // "Mega X" -> "x-mega"
-      if (name.includes(' ')) {
-        const parts = name.split(' ');
-        if (parts.length === 2) {
-          // Check if first word is a common prefix
-          const prefixes = ['hisuian', 'alolan', 'galarian', 'mega', 'primal', 'origin'];
-          if (prefixes.includes(parts[0])) {
-            name = `${parts[1]}-${parts[0]}`;
-          } else {
-            // General fallback: swap and hyphenate
-            name = parts.join('-');
-          }
-        }
-      }
+    for (let rawName of names) {
+      const name = normalizePokemonName(rawName);
 
       if (selectedPokemon.some(p => p.name.toLowerCase() === name || p.name.toLowerCase() === name.replace('-', ' '))) continue;
       try {
@@ -76,7 +76,7 @@ export function HostSettings({
         const data = response.data;
         added.push({
           id: data.id,
-          name: data.name.charAt(0).toUpperCase() + data.name.slice(1).replace('-', ' '),
+          name: data.name.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' '),
           image: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
           types: data.types.map(t => t.type.name),
           basePrice: startingBid
