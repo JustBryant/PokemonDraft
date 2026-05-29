@@ -28,12 +28,21 @@ export function HostSettings({
     if (!name.includes(' ')) return name;
 
     const parts = name.split(' ');
+    // Map common suffixes to PokeAPI expected terms
+    const suffixMap = {
+      'hisuian': 'hisui',
+      'alolan': 'alola',
+      'galarian': 'galar',
+      'paldean': 'paldea'
+    };
+    
     const prefixes = ['hisuian', 'alolan', 'galarian', 'paldean', 'mega', 'primal', 'origin', 'gmax'];
     
-    // If first word is a prefix (e.g., "Hisuian Zoroark" -> "zoroark-hisuian")
+    // If first word is a prefix (e.g., "Hisuian Zoroark" -> "zoroark-hisui")
     if (prefixes.includes(parts[0])) {
       const base = parts.slice(1).join('-');
-      return `${base}-${parts[0]}`;
+      const suffix = suffixMap[parts[0]] || parts[0];
+      return `${base}-${suffix}`;
     }
     
     // Default: join with hyphens (e.g., "Iron Valiant" -> "iron-valiant")
