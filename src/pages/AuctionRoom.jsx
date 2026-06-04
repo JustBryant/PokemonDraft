@@ -10,12 +10,12 @@ import { supabase, isSupabaseConfigured, db } from '../lib/supabase';
 // Helper for local storage
 const getSession = (roomId, isForcedNew) => {
   if (isForcedNew) return null;
-  const saved = localStorage.getItem(\`poke_session_\${roomId}\`);
+  const saved = localStorage.getItem(`poke_session_${roomId}`);
   return saved ? JSON.parse(saved) : null;
 };
 
 const saveSession = (roomId, session) => {
-  localStorage.setItem(\`poke_session_\${roomId}\`, JSON.stringify(session));
+  localStorage.setItem(`poke_session_${roomId}`, JSON.stringify(session));
 };
 
 export default function AuctionRoom() {
@@ -120,7 +120,7 @@ export default function AuctionRoom() {
 
     // Sync to other tabs
     try {
-      const bc = new BroadcastChannel(\`poke_auction_\${roomId}\`);
+      const bc = new BroadcastChannel(`poke_auction_${roomId}`);
       bc.postMessage({ type: 'STATE_UPDATE', data: updates });
       bc.close();
     } catch {}
@@ -171,7 +171,7 @@ export default function AuctionRoom() {
     if (!roomId) return;
 
     // A. Broadcast Channel
-    const bc = new BroadcastChannel(\`poke_auction_\${roomId}\`);
+    const bc = new BroadcastChannel(`poke_auction_${roomId}`);
     bc.onmessage = (event) => {
       if (event.data.type === 'STATE_UPDATE') updateLocalState(event.data.data);
     };
@@ -208,8 +208,8 @@ export default function AuctionRoom() {
     };
 
     if (isSupabaseConfigured) {
-      sbChannel = supabase.channel(\`room:\${roomId}\`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: \`id=eq.\${roomId}\` }, 
+      sbChannel = supabase.channel(`room:${roomId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, 
           (payload) => updateLocalState(payload.new)
         ).subscribe((status) => {
           if (status === 'SUBSCRIBED') loadRoom();
@@ -260,7 +260,7 @@ export default function AuctionRoom() {
 
     if (!existingPlayer) {
       const newPlayer = {
-        id: \`\${Date.now()}-\${Math.random()}\`,
+        id: `${Date.now()}-${Math.random()}`,
         name: newIdentity.playerName,
         balance: startingMoney,
         party: [],
@@ -525,7 +525,7 @@ export default function AuctionRoom() {
             </h1>
           </div>
           <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700">
-            <span className={`w-2.5 h-2.5 rounded-full \${isSupabaseConfigured ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)] animate-pulse' : 'bg-blue-500'}\`}></span>
+            <span className={`w-2.5 h-2.5 rounded-full ${isSupabaseConfigured ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)] animate-pulse' : 'bg-blue-500'}`}></span>
             <span className="text-xs font-black tracking-widest text-slate-400 uppercase">{roomId}</span>
           </div>
         </div>
@@ -546,7 +546,7 @@ export default function AuctionRoom() {
           </button>
           
           {identity.isHost && (
-            <button onClick={() => setShowAdmin(!showAdmin)} className={`p-2 rounded-lg border transition-all \${showAdmin ? 'bg-yellow-500 text-slate-900 border-yellow-500' : 'bg-slate-800 text-slate-400 border-slate-700'}\`}>
+            <button onClick={() => setShowAdmin(!showAdmin)} className={`p-2 rounded-lg border transition-all ${showAdmin ? 'bg-yellow-500 text-slate-900 border-yellow-500' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
               <Settings className="w-5 h-5" />
             </button>
           )}
@@ -623,17 +623,17 @@ export default function AuctionRoom() {
                      {isBiddingActive ? (
                         <>
                           <div className="bg-slate-900 rounded-2xl p-6 border border-slate-700 relative overflow-hidden">
-                             <div className="absolute top-0 left-0 h-1.5 bg-yellow-500 transition-all duration-1000" style={{ width: \`\${(timeLeft / timerDuration) * 100}%\` }}></div>
+                             <div className="absolute top-0 left-0 h-1.5 bg-yellow-500 transition-all duration-1000" style={{ width: `${(timeLeft / timerDuration) * 100}%` }}></div>
                              <div className="flex justify-between items-center">
                                <div>
                                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Active Bidder</p>
-                                 <p className={\`text-xl font-black uppercase italic \${players[currentBidderIndex]?.name === identity.playerName ? 'text-yellow-500' : 'text-white'}\`}>
+                                 <p className={`text-xl font-black uppercase italic ${players[currentBidderIndex]?.name === identity.playerName ? 'text-yellow-500' : 'text-white'}`}>
                                    {players[currentBidderIndex]?.name === identity.playerName ? 'YOUR TURN' : players[currentBidderIndex]?.name}
                                  </p>
                                </div>
                                <div className="text-right">
                                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Timer</p>
-                                 <p className={\`text-3xl font-black tabular-nums \${timeLeft <= 5 ? 'text-red-500 animate-pulse' : 'text-white'}\`}>{timeLeft}s</p>
+                                 <p className={`text-3xl font-black tabular-nums ${timeLeft <= 5 ? 'text-red-500 animate-pulse' : 'text-white'}`}>{timeLeft}s</p>
                                </div>
                              </div>
                           </div>
@@ -674,11 +674,11 @@ export default function AuctionRoom() {
 
                     return (
                       <div key={poke.id} className="relative group">
-                        <button disabled={!canNominate} onClick={() => nominatePokemon(idx)} className={\`w-full p-4 rounded-3xl border-2 transition-all \${
+                        <button disabled={!canNominate} onClick={() => nominatePokemon(idx)} className={`w-full p-4 rounded-3xl border-2 transition-all ${
                           isDrafted ? 'bg-slate-900/50 border-slate-800 opacity-40 grayscale pointer-events-none' :
                           canNominate ? 'bg-slate-900 border-slate-700 hover:border-blue-500 hover:scale-[1.03] shadow-lg hover:shadow-blue-500/10' :
                           'bg-slate-900 border-slate-700 opacity-60'
-                        }\`}>
+                        }`}>
                           <img src={poke.sprite || poke.image} alt="" className="w-full h-auto drop-shadow-xl" />
                           <p className="text-[10px] font-black uppercase text-center mt-3 text-slate-500 group-hover:text-white transition-colors tracking-tight truncate">{poke.name}</p>
                           {isDrafted && <div className="absolute inset-0 flex items-center justify-center"><span className="bg-red-600/90 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest rotate-[-15deg]">Drafted</span></div>}
@@ -709,7 +709,7 @@ export default function AuctionRoom() {
                     <img src={h.pokemon.image || h.pokemon.sprite} className="w-12 h-12 object-contain group-hover:scale-110 transition-transform" alt="" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-black uppercase italic tracking-tight truncate">{h.pokemon.name}</p>
-                      <p className="text-[10px] font-bold text-slate-500 uppercase"><span className="text-blue-400">{h.winner?.name}</span> • <span className="text-yellow-500">\${h.price}</span></p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase"><span className="text-blue-400">{h.winner?.name}</span> • <span className="text-yellow-500">${h.price}</span></p>
                     </div>
                   </div>
                 ))
@@ -743,7 +743,7 @@ function PoolModal({ pool, history, onClose }) {
           {pool.map((poke) => {
              const draftEntry = history.find(h => h.pokemon.id === poke.id);
              return (
-               <div key={poke.id} className={\`relative p-4 rounded-3xl border transition-all \${draftEntry ? 'bg-slate-950/50 border-slate-900 opacity-40' : 'bg-slate-800/50 border-slate-700'}\`}>
+               <div key={poke.id} className={`relative p-4 rounded-3xl border transition-all ${draftEntry ? 'bg-slate-950/50 border-slate-900 opacity-40' : 'bg-slate-800/50 border-slate-700'}`}>
                  <img src={poke.sprite || poke.image} alt="" className="w-full h-auto drop-shadow-lg" />
                  <p className="text-[9px] font-black uppercase text-center mt-2 truncate text-slate-500 italic">{poke.name}</p>
                  {draftEntry && <div className="absolute inset-0 flex items-center justify-center"><span className="bg-red-600/20 text-red-500 border border-red-500/30 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">{draftEntry.winner?.name}</span></div>}
@@ -773,7 +773,7 @@ function WinCeremony({ data }) {
             <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">Winning Trainer</p>
             <div className="text-6xl font-black text-blue-400 italic uppercase drop-shadow-[0_4px_10px_rgba(59,130,246,0.3)]">{data.winner}</div>
           </div>
-          <div className="mt-10 bg-green-500/20 text-green-400 border-2 border-green-500/30 px-10 py-3 rounded-full font-black text-4xl shadow-green-500/10 shadow-2xl italic tracking-tighter">\${data.price}</div>
+          <div className="mt-10 bg-green-500/20 text-green-400 border-2 border-green-500/30 px-10 py-3 rounded-full font-black text-4xl shadow-green-500/10 shadow-2xl italic tracking-tighter">${data.price}</div>
         </div>
       </div>
     </div>
@@ -789,7 +789,7 @@ function ResultsScreen({ players, onBack }) {
           <h1 className="text-7xl font-black italic uppercase tracking-tighter">Draft <span className="text-yellow-500">Finished</span></h1>
           <p className="text-slate-500 mt-4 font-black tracking-widest uppercase text-sm">Teams have been finalized</p>
           <button onClick={() => {
-            const text = players.map(p => \`=== \${p.name}'s Team ===\n\${p.party.map(poke => poke.name).join('\n')}\`).join('\n\n');
+            const text = players.map(p => `=== ${p.name}'s Team ===\n${p.party.map(poke => poke.name).join('\n')}`).join('\n\n');
             const blob = new Blob([text], {type: 'text/plain'});
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a'); a.href = url; a.download = 'draft_results.txt'; a.click();
@@ -800,7 +800,7 @@ function ResultsScreen({ players, onBack }) {
             <div key={p.id} className="bg-slate-800 rounded-[3rem] p-10 border-2 border-slate-700 shadow-2xl group hover:border-blue-500/50 transition-all">
               <div className="flex justify-between items-center mb-8 border-b border-slate-700 pb-6">
                 <h3 className="text-3xl font-black italic uppercase text-blue-400 truncate pr-4">{p.name}</h3>
-                <div className="bg-slate-900 border border-yellow-500/20 px-4 py-1.5 rounded-full text-yellow-500 font-black text-xs italic">\${p.balance} Left</div>
+                <div className="bg-slate-900 border border-yellow-500/20 px-4 py-1.5 rounded-full text-yellow-500 font-black text-xs italic">${p.balance} Left</div>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 {p.party.map((poke, i) => (
