@@ -119,7 +119,7 @@ export default function AuctionRoom() {
     if (updates.highest_bidder !== undefined) setHighestBidder(updates.highest_bidder);
     if (updates.is_active !== undefined) setIsBiddingActive(updates.is_active);
     
-    // Map is_active_game to isAuctionStarted
+    // Map data to local state
     const isStarted = updates.is_started !== undefined ? updates.is_started : updates.is_active_game;
     if (isStarted !== undefined) setIsAuctionStarted(isStarted);
 
@@ -160,8 +160,8 @@ export default function AuctionRoom() {
         if (updates[col] !== undefined) dbPayload[col] = updates[col];
       });
 
-      // Special mapping for is_active_game -> is_started
-      if (updates.is_active_game !== undefined) {
+      // Special mapping: ONLY map is_active_game to is_started if is_started isn't explicitly provided
+      if (updates.is_active_game !== undefined && updates.is_started === undefined) {
         dbPayload.is_started = updates.is_active_game;
       }
 
@@ -778,9 +778,10 @@ export default function AuctionRoom() {
     setShowHostSetup(false);
 
     // 3. Broadcast pool creation without starting the game logic
+    // We set is_started to false here because it means "is the draft running"
     await updateRoomState({
       pool: pool,
-      is_started: true,
+      is_started: false,
       is_active_game: false,
       is_active: false,
       current_index: -1,
