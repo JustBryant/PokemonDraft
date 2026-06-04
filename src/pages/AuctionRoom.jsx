@@ -406,16 +406,61 @@ export default function AuctionRoom() {
       }
     };
 
+  useEffect(() => {
+    if (!roomId) return;
+
+    // 0. BroadcastChannel for Cross-Browser/Tab Sync
+    const channel = new BroadcastChannel(`poke_auction_${roomId}`);
+    
+    const handleBroadcast = (event) => {
+      const { type, data } = event.data;
+      console.log('[Broadcast Received]', type, data);
+      
+      switch (type) {
+        case 'STATE_UPDATE':
+          if (data.participants) setPlayers(data.participants);
+          if (data.pool) setPokemonPool(data.pool);
+          if (typeof data.current_index !== 'undefined') setCurrentPokemonIndex(data.current_index);
+          if (typeof data.current_bid !== 'undefined') setCurrentBid(data.current_bid);
+          if (typeof data.highest_bidder !== 'undefined') setHighestBidder(data.highest_bidder);
+          if (typeof data.is_active !== 'undefined') setIsBiddingActive(data.is_active);
+          if (typeof data.is_active_game !== 'undefined') setIsAuctionStarted(data.is_active_game);
+          if (data.history) setHistory(data.history);
+          if (data.nomination_order) setNominationOrder(data.nomination_order);
+          if (typeof data.nominee_index !== 'undefined') setCurrentNomineeIndex(data.nominee_index);
+          if (typeof data.bidder_index !== 'undefined') setCurrentBidderIndex(data.bidder_index);
+          if (data.bidders_in_round) setBiddersInRound(data.bidders_in_round);
+          if (typeof data.is_descending !== 'undefined') setIsSnakeDescending(data.is_descending);
+          if (typeof data.actual_round !== 'undefined') setActualRound(data.actual_round);
+          if (typeof data.timer_duration !== 'undefined') setTimerDuration(data.timer_duration);
+          if (typeof data.starting_bid !== 'undefined') setStartingBid(data.starting_bid);
+          if (typeof data.max_pokemon !== 'undefined') setMaxPokemon(data.max_pokemon);
+          if (typeof data.time_left !== 'undefined') setTimeLeft(data.time_left);
+          if (typeof data.is_finalized !== 'undefined') setIsDraftFinalized(data.is_finalized);
+          if (data.win_ceremony) {
+            setLastWinData(data.win_ceremony);
+            setShowWinCeremony(true);
+            setTimeout(() => setShowWinCeremony(false), 4000);
+          }
+          break;
+        case 'PLAYER_JOINED':
+          // We'll let Supabase handle the source of truth for players
+          break;
+      }
+    };
+
     channel.onmessage = handleBroadcast;
 
     // Safety timeout for loading state
     const loadingTimeout = setTimeout(() => {
+      console.log('[Sync] Safety timeout reached. Clearing loading screen.');
       setIsConnectionLoading(false);
-    }, 10000);
+    }, 8000);
 
     // 1. Supabase Logic (Primary Sync)
     let supabaseChannel = null;
-    if (isSupabaseConfigured && roomId) {
+
+    if (isSupabaseConfigured) {
       console.log('[Supabase] Initializing sync for room:', roomId);
       
       const updateLocalState = (data) => {
@@ -438,7 +483,8 @@ export default function AuctionRoom() {
         if (data.time_left !== undefined) setTimeLeft(data.time_left);
         if (data.is_finalized !== undefined) setIsDraftFinalized(data.is_finalized);
         if (data.starting_money !== undefined) {
-          setRoomState(prev => ({ ...prev, startingMoney: data.starting_money }));
+          // Use functional update to avoid dependency on roomState
+          setRoomState(prev => prev.startingMoney === data.starting_money ? prev : ({ ...prev, startingMoney: data.starting_money }));
         }
       };
 
@@ -447,22 +493,30 @@ export default function AuctionRoom() {
           const { data, error } = await supabase.from('rooms').select('*').eq('id', roomId).single();
           if (data) {
             updateLocalState(data);
-          } else if (roomState.isHost && (error?.code === 'PGRST116' || !error)) {
-            console.log('[Supabase] Room not found, creating as host...');
-            await supabase.from('rooms').insert([{
-              id: roomId,
-              host_id: roomState.playerName || 'Host',
-              participants: [],
-              pool: [],
-              current_index: -1,
-              is_started: false
-            }]);
-          } else {
-            console.warn('[Supabase] Room fetch error or not authorized:', error);
+            setIsConnectionLoading(false);
+            clearTimeout(loadingTimeout);
+          } else if (error?.code === 'PGRST116' || !error) {
+            // Room doesn't exist. We'll only create it if we are the host.
+            // Check local storage for host status as a backup to avoid dependency loop
+            const session = JSON.parse(localStorage.getItem(`poke_session_${roomId}`) || '{}');
+            const isHost = session.isHost || new URLSearchParams(window.location.search).get('host') === 'true';
+            
+            if (isHost) {
+              console.log('[Supabase] Room not found, creating as host...');
+              await supabase.from('rooms').insert([{
+                id: roomId,
+                host_id: session.playerName || 'Host',
+                participants: [],
+                pool: [],
+                current_index: -1,
+                is_started: false
+              }]);
+            }
+            setIsConnectionLoading(false);
+            clearTimeout(loadingTimeout);
           }
         } catch (err) {
           console.error('[Supabase Fetch Error]', err);
-        } finally {
           setIsConnectionLoading(false);
           clearTimeout(loadingTimeout);
         }
@@ -479,7 +533,7 @@ export default function AuctionRoom() {
           }
         }).subscribe((status) => {
           console.log(`[Supabase Status] ${status}`);
-          if (status === 'SUBSCRIBED') {
+          if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR') {
              setIsConnectionLoading(false);
              clearTimeout(loadingTimeout);
           }
@@ -494,32 +548,26 @@ export default function AuctionRoom() {
       clearTimeout(loadingTimeout);
     }
 
-    // 2. Heartbeat logic
-    const lastActiveKey = `poke_room_${roomId}_last_active`;
-
-    const heartbeat = setInterval(() => {
-      if (hasJoined && roomState.playerName) {
-        // Sync heartbeat to Supabase to prevent auto-cleanup
-        if (isSupabaseConfigured) {
-          supabase.from('rooms').update({ last_activity_at: new Date().toISOString() }).eq('id', roomId)
-            .then(() => {}).catch(e => console.error('Heartbeat failed', e)); 
-        }
-      }
-    }, 15000); // Pulse every 15s for the live DB
-
     return () => {
       if (supabaseChannel) {
         try { supabase.removeChannel(supabaseChannel); } catch (e) {}
       }
       channel.close();
-      clearInterval(heartbeat);
       clearTimeout(loadingTimeout);
     };
-  }, [roomId, roomState.isHost, roomState.playerName, hasJoined, isParticipating]);
+  }, [roomId]);
 
+  // Separate Heartbeat Effect
   useEffect(() => {
-    if (!hasJoined) return;
-    const bc = new BroadcastChannel(`poke_auction_${roomId}`);
+    if (!roomId || !hasJoined || !roomState.playerName || !isSupabaseConfigured) return;
+
+    const heartbeat = setInterval(() => {
+      supabase.from('rooms').update({ last_activity_at: new Date().toISOString() }).eq('id', roomId)
+        .then(() => {}).catch(e => console.error('Heartbeat failed', e)); 
+    }, 30000); // Pulse every 30s
+
+    return () => clearInterval(heartbeat);
+  }, [roomId, hasJoined, roomState.playerName]);
     bc.postMessage({ type: 'PLAYER_JOINED', data: { name: roomState.playerName } });
     bc.close();
   }, [hasJoined, roomId, roomState.playerName]);
