@@ -370,54 +370,8 @@ export default function AuctionRoom() {
   };
 
   useEffect(() => {
-    if (!roomId) return;
-
-    // 0. BroadcastChannel for Cross-Browser/Tab Sync
-    const channel = new BroadcastChannel(`poke_auction_${roomId}`);
-    
-    const handleBroadcast = (event) => {
-      const { type, data } = event.data;
-      console.log('[Broadcast Received]', type, data);
-      
-      switch (type) {
-        case 'STATE_UPDATE':
-          if (data.participants) setPlayers(data.participants);
-          if (data.pool) setPokemonPool(data.pool);
-          if (typeof data.current_index !== 'undefined') setCurrentPokemonIndex(data.current_index);
-          if (typeof data.current_bid !== 'undefined') setCurrentBid(data.current_bid);
-          if (typeof data.highest_bidder !== 'undefined') setHighestBidder(data.highest_bidder);
-          if (typeof data.is_active !== 'undefined') setIsBiddingActive(data.is_active);
-          if (typeof data.is_active_game !== 'undefined') setIsAuctionStarted(data.is_active_game);
-          if (data.history) setHistory(data.history);
-          if (data.nomination_order) setNominationOrder(data.nomination_order);
-          if (typeof data.nominee_index !== 'undefined') setCurrentNomineeIndex(data.nominee_index);
-          if (typeof data.bidder_index !== 'undefined') setCurrentBidderIndex(data.bidder_index);
-          if (data.bidders_in_round) setBiddersInRound(data.bidders_in_round);
-          if (typeof data.is_descending !== 'undefined') setIsSnakeDescending(data.is_descending);
-          if (typeof data.actual_round !== 'undefined') setActualRound(data.actual_round);
-          if (typeof data.timer_duration !== 'undefined') setTimerDuration(data.timer_duration);
-          if (typeof data.starting_bid !== 'undefined') setStartingBid(data.starting_bid);
-          if (typeof data.max_pokemon !== 'undefined') setMaxPokemon(data.max_pokemon);
-          if (typeof data.time_left !== 'undefined') setTimeLeft(data.time_left);
-          if (typeof data.is_finalized !== 'undefined') setIsDraftFinalized(data.is_finalized);
-          if (data.win_ceremony) {
-            setLastWinData(data.win_ceremony);
-            setShowWinCeremony(true);
-            setTimeout(() => setShowWinCeremony(false), 4000);
-          }
-          break;
-        case 'PLAYER_JOINED':
-          // Re-sync player list
-          const currentList = JSON.parse(localStorage.getItem(`poke_room_${roomId}_players`) || '[]');
-          setPlayers(currentList);
-          break;
-      }
-    };
-
-  useEffect(() => {
     // If there's no room ID or Supabase isn't configured, stop loading immediately
-    if (!roomId || !isSupabaseConfigured) {
-      console.log('[Sync] Initialization bypassed:', { roomId, isSupabaseConfigured });
+    if (!roomId) {
       setIsConnectionLoading(false);
       return;
     }
@@ -583,9 +537,6 @@ export default function AuctionRoom() {
 
     return () => clearInterval(heartbeat);
   }, [roomId, hasJoined, roomState.playerName]);
-    bc.postMessage({ type: 'PLAYER_JOINED', data: { name: roomState.playerName } });
-    bc.close();
-  }, [hasJoined, roomId, roomState.playerName]);
 
   // Unified Room Update Action
   const updateRoomState = async (updates) => {
