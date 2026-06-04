@@ -408,10 +408,18 @@ export default function AuctionRoom() {
 
     channel.onmessage = handleBroadcast;
 
+    // Safety timeout for loading state
+    const loadingTimeout = setTimeout(() => {
+      setIsConnectionLoading(false);
+    }, 10000);
+
     // 1. Supabase Logic (Primary Sync)
     let supabaseChannel = null;
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured && roomId) {
+      console.log('[Supabase] Initializing sync for room:', roomId);
+      
       const updateLocalState = (data) => {
+        if (!data) return;
         if (data.participants) setPlayers(data.participants);
         if (data.pool) setPokemonPool(data.pool);
         if (data.current_index !== undefined) setCurrentPokemonIndex(data.current_index);
@@ -439,7 +447,8 @@ export default function AuctionRoom() {
           const { data, error } = await supabase.from('rooms').select('*').eq('id', roomId).single();
           if (data) {
             updateLocalState(data);
-          } else if (roomState.isHost && !error) {
+          } else if (roomState.isHost && (error?.code === 'PGRST116' || !error)) {
+            console.log('[Supabase] Room not found, creating as host...');
             await supabase.from('rooms').insert([{
               id: roomId,
               host_id: roomState.playerName || 'Host',
@@ -448,11 +457,14 @@ export default function AuctionRoom() {
               current_index: -1,
               is_started: false
             }]);
+          } else {
+            console.warn('[Supabase] Room fetch error or not authorized:', error);
           }
         } catch (err) {
           console.error('[Supabase Fetch Error]', err);
         } finally {
           setIsConnectionLoading(false);
+          clearTimeout(loadingTimeout);
         }
       };
       fetchRoom();
@@ -465,12 +477,21 @@ export default function AuctionRoom() {
           if (data) {
             updateLocalState(data);
           }
-        }).subscribe();
+        }).subscribe((status) => {
+          console.log(`[Supabase Status] ${status}`);
+          if (status === 'SUBSCRIBED') {
+             setIsConnectionLoading(false);
+             clearTimeout(loadingTimeout);
+          }
+        });
       } catch (err) {
         console.error('[Supabase Channel Error]', err);
+        setIsConnectionLoading(false);
+        clearTimeout(loadingTimeout);
       }
     } else {
       setIsConnectionLoading(false);
+      clearTimeout(loadingTimeout);
     }
 
     // 2. Heartbeat logic
@@ -481,7 +502,7 @@ export default function AuctionRoom() {
         // Sync heartbeat to Supabase to prevent auto-cleanup
         if (isSupabaseConfigured) {
           supabase.from('rooms').update({ last_activity_at: new Date().toISOString() }).eq('id', roomId)
-            .then(() => {}); // Fire and forget
+            .then(() => {}).catch(e => console.error('Heartbeat failed', e)); 
         }
       }
     }, 15000); // Pulse every 15s for the live DB
@@ -492,6 +513,7 @@ export default function AuctionRoom() {
       }
       channel.close();
       clearInterval(heartbeat);
+      clearTimeout(loadingTimeout);
     };
   }, [roomId, roomState.isHost, roomState.playerName, hasJoined, isParticipating]);
 
