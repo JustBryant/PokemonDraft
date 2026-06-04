@@ -43,71 +43,38 @@ export default function AuctionRoom() {
   });
 
   // Core Auction State
-  const [players, setPlayers] = useState(() => {
-    return JSON.parse(localStorage.getItem(`poke_room_${roomId}_players`) || '[]');
-  });
-  const [pokemonPool, setPokemonPool] = useState(() => {
-    return JSON.parse(localStorage.getItem(`poke_room_${roomId}_pool`) || '[]');
-  });
-  const [currentPokemonIndex, setCurrentPokemonIndex] = useState(() => {
-    return JSON.parse(localStorage.getItem(`poke_room_${roomId}_index`) || '-1');
-  });
+  const [players, setPlayers] = useState([]);
+  const [pokemonPool, setPokemonPool] = useState([]);
+  const [currentPokemonIndex, setCurrentPokemonIndex] = useState(-1);
   const [currentBid, setCurrentBid] = useState(0);
   const [highestBidder, setHighestBidder] = useState(null);
   const [isBiddingActive, setIsBiddingActive] = useState(false);
   const [history, setHistory] = useState([]);
-  const [nominationOrder, setNominationOrder] = useState(() => {
-    return JSON.parse(localStorage.getItem(`poke_room_${roomId}_nom_order`) || '[]');
-  });
-  const [currentNomineeIndex, setCurrentNomineeIndex] = useState(() => {
-    return JSON.parse(localStorage.getItem(`poke_room_${roomId}_nom_index`) || '0');
-  });
-  const [timerDuration, setTimerDuration] = useState(() => {
-    return JSON.parse(localStorage.getItem(`poke_room_${roomId}_timer_duration`) || '30');
-  });
-  const [maxPokemon, setMaxPokemon] = useState(() => {
-    return JSON.parse(localStorage.getItem(`poke_room_${roomId}_max_pokemon`) || '6');
-  });
+  const [nominationOrder, setNominationOrder] = useState([]);
+  const [currentNomineeIndex, setCurrentNomineeIndex] = useState(0);
+  const [timerDuration, setTimerDuration] = useState(30);
+  const [maxPokemon, setMaxPokemon] = useState(6);
 
-  const [isDraftFinalized, setIsDraftFinalized] = useState(() => {
-    return localStorage.getItem(`poke_room_${roomId}_finalized`) === 'true';
-  });
+  const [isDraftFinalized, setIsDraftFinalized] = useState(false);
 
   const currentPokemon = currentPokemonIndex >= 0 ? pokemonPool[currentPokemonIndex] : null;
 
-  const [startingBid, setStartingBid] = useState(() => {
-    return JSON.parse(localStorage.getItem(`poke_room_${roomId}_starting_bid`) || '0');
-  });
+  const [startingBid, setStartingBid] = useState(0);
 
   const [timeLeft, setTimeLeft] = useState(30);
 
   // Use a local state for startingMoney since it's used for registration
   useEffect(() => {
-    const savedMoney = localStorage.getItem(`poke_room_${roomId}_starting_money`);
-    if (savedMoney) {
-      setRoomState(prev => ({ ...prev, startingMoney: JSON.parse(savedMoney) }));
-    }
+    // We'll get this from Supabase now
   }, [roomId]);
 
   const [isParticipating, setIsParticipating] = useState(roomState.isParticipating || false);
   const [biddersInRound, setBiddersInRound] = useState([]);
   
   // UI State
-  const [isAuctionStarted, setIsAuctionStarted] = useState(() => {
-    return localStorage.getItem(`poke_room_${roomId}_active_game`) === 'true';
-  });
-  const [showHostSetup, setShowHostSetup] = useState(() => {
-    // Only check this for the host. 
-    // Everyone else (players) must NEVER see the setup screen.
-    const urlParams = new URL(window.location.href).searchParams;
-    const isHostFromUrl = urlParams.get('host') === 'true' || (JSON.parse(localStorage.getItem(`poke_session_${roomId}`) || '{}').isHost);
-    
-    if (!isHostFromUrl) return false;
-
-    const started = localStorage.getItem(`poke_room_${roomId}_started`) === 'true';
-    const pool = JSON.parse(localStorage.getItem(`poke_room_${roomId}_pool`) || '[]');
-    return !started && pool.length === 0;
-  });
+  const [isConnectionLoading, setIsConnectionLoading] = useState(isSupabaseConfigured);
+  const [isAuctionStarted, setIsAuctionStarted] = useState(false);
+  const [showHostSetup, setShowHostSetup] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showPoolModal, setShowPoolModal] = useState(false);
   const [hasJoined, setHasJoined] = useState(() => {
@@ -117,6 +84,16 @@ export default function AuctionRoom() {
     return false;
   });
   const [tempName, setTempName] = useState('');
+
+  if (isConnectionLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-4">
+        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <h2 className="text-xl font-bold italic uppercase tracking-widest">Connecting to Room...</h2>
+        <p className="text-slate-400 mt-2">Checking Supabase connection</p>
+      </div>
+    );
+  }
 
   const toggleSetup = () => {
     if (roomState.isHost) {
@@ -153,7 +130,7 @@ export default function AuctionRoom() {
     
     // Only add to Supabase if they don't exist yet
     if (!existingPlayer) {
-      const globalStartingMoney = JSON.parse(localStorage.getItem(`poke_room_${roomId}_starting_money`) || '1000');
+      const globalStartingMoney = roomState.startingMoney || 1000;
       const newPlayer = {
         id: `${Date.now()}-${Math.random()}`,
         name: sessionName,
@@ -431,25 +408,41 @@ export default function AuctionRoom() {
 
     channel.onmessage = handleBroadcast;
 
-    // 1. Supabase Logic (Enhancement)
+    // 1. Supabase Logic (Primary Sync)
     let supabaseChannel = null;
     if (isSupabaseConfigured) {
+      const updateLocalState = (data) => {
+        if (data.participants) setPlayers(data.participants);
+        if (data.pool) setPokemonPool(data.pool);
+        if (data.current_index !== undefined) setCurrentPokemonIndex(data.current_index);
+        if (data.current_bid !== undefined) setCurrentBid(data.current_bid);
+        if (data.highest_bidder !== undefined) setHighestBidder(data.highest_bidder);
+        if (data.is_active !== undefined) setIsBiddingActive(data.is_active);
+        if (data.is_started !== undefined) setIsAuctionStarted(data.is_started);
+        if (data.history) setHistory(data.history || []);
+        if (data.nomination_order) setNominationOrder(data.nomination_order || []);
+        if (data.nominee_index !== undefined) setCurrentNomineeIndex(data.nominee_index);
+        if (data.is_descending !== undefined) setIsSnakeDescending(data.is_descending);
+        if (data.actual_round !== undefined) setActualRound(data.actual_round);
+        if (data.starting_bid !== undefined) setStartingBid(data.starting_bid);
+        if (data.timer_duration !== undefined) setTimerDuration(data.timer_duration);
+        if (data.max_pokemon !== undefined) setMaxPokemon(data.max_pokemon);
+        if (data.time_left !== undefined) setTimeLeft(data.time_left);
+        if (data.is_finalized !== undefined) setIsDraftFinalized(data.is_finalized);
+        if (data.starting_money !== undefined) {
+          setRoomState(prev => ({ ...prev, startingMoney: data.starting_money }));
+        }
+      };
+
       const fetchRoom = async () => {
         try {
           const { data, error } = await supabase.from('rooms').select('*').eq('id', roomId).single();
           if (data) {
-            setPlayers(data.participants || []);
-            setPokemonPool(data.pool || []);
-            setCurrentPokemonIndex(data.current_index);
-            setCurrentBid(data.current_bid);
-            setHighestBidder(data.highest_bidder);
-            setIsBiddingActive(data.is_active);
-            setIsAuctionStarted(data.is_started);
-            setHistory(data.history || []);
+            updateLocalState(data);
           } else if (roomState.isHost && !error) {
             await supabase.from('rooms').insert([{
               id: roomId,
-              host_id: roomState.playerName,
+              host_id: roomState.playerName || 'Host',
               participants: [],
               pool: [],
               current_index: -1,
@@ -458,6 +451,8 @@ export default function AuctionRoom() {
           }
         } catch (err) {
           console.error('[Supabase Fetch Error]', err);
+        } finally {
+          setIsConnectionLoading(false);
         }
       };
       fetchRoom();
@@ -468,64 +463,21 @@ export default function AuctionRoom() {
         }, (payload) => {
           const data = payload.new;
           if (data) {
-            setPlayers(data.participants || []);
-            setPokemonPool(data.pool || []);
-            setCurrentPokemonIndex(data.current_index);
-            setCurrentBid(data.current_bid);
-            setHighestBidder(data.highest_bidder);
-            setIsBiddingActive(data.is_active);
-            setIsAuctionStarted(data.is_started);
-            setHistory(data.history || []);
-            setNominationOrder(data.nomination_order || []);
-            if (data.nominee_index !== undefined) setCurrentNomineeIndex(data.nominee_index);
-            if (data.is_descending !== undefined) setIsSnakeDescending(data.is_descending);
-            if (data.actual_round !== undefined) setActualRound(data.actual_round);
-            if (data.starting_bid !== undefined) setStartingBid(data.starting_bid);
-            if (data.timer_duration !== undefined) setTimerDuration(data.timer_duration);
-            if (data.max_pokemon !== undefined) setMaxPokemon(data.max_pokemon);
-            if (data.time_left !== undefined) setTimeLeft(data.time_left);
-            if (data.is_finalized !== undefined) setIsDraftFinalized(data.is_finalized);
-            if (data.starting_money !== undefined) {
-              setRoomState(prev => ({ ...prev, startingMoney: data.starting_money }));
-            }
+            updateLocalState(data);
           }
         }).subscribe();
       } catch (err) {
         console.error('[Supabase Channel Error]', err);
       }
+    } else {
+      setIsConnectionLoading(false);
     }
 
-    // 2. LocalStorage Polling (Baseline Sync)
-    const roomKey = `poke_room_${roomId}_players`;
+    // 2. Heartbeat logic
     const lastActiveKey = `poke_room_${roomId}_last_active`;
 
-    const fetchInitial = () => {
-      try {
-        const index = JSON.parse(localStorage.getItem(`poke_room_${roomId}_index`) || '-1');
-        const bid = JSON.parse(localStorage.getItem(`poke_room_${roomId}_bid`) || '0');
-        const bidder = JSON.parse(localStorage.getItem(`poke_room_${roomId}_bidder`) || 'null');
-        const activeState = JSON.parse(localStorage.getItem(`poke_room_${roomId}_active`) || 'false');
-        const hist = JSON.parse(localStorage.getItem(`poke_room_${roomId}_history`) || '[]');
-        const savedPool = JSON.parse(localStorage.getItem(`poke_room_${roomId}_pool`) || '[]');
-        const auctionStatus = localStorage.getItem(`poke_room_${roomId}_active_game`) === 'true';
-
-        setCurrentPokemonIndex(index);
-        setCurrentBid(bid);
-        setHighestBidder(bidder);
-        setIsBiddingActive(activeState);
-        setHistory(hist);
-        setPokemonPool(savedPool);
-        setIsAuctionStarted(auctionStatus);
-      } catch (e) {}
-    };
-    fetchInitial();
-    
     const heartbeat = setInterval(() => {
       if (hasJoined && roomState.playerName) {
-        let active = JSON.parse(localStorage.getItem(lastActiveKey) || '{}');
-        active[roomState.playerName] = Date.now();
-        localStorage.setItem(lastActiveKey, JSON.stringify(active));
-
         // Sync heartbeat to Supabase to prevent auto-cleanup
         if (isSupabaseConfigured) {
           supabase.from('rooms').update({ last_activity_at: new Date().toISOString() }).eq('id', roomId)
@@ -534,144 +486,11 @@ export default function AuctionRoom() {
       }
     }, 15000); // Pulse every 15s for the live DB
 
-    const syncInterval = setInterval(() => {
-      // Local Sync runs regardless of Supabase configuration
-      const blacklist = JSON.parse(localStorage.getItem(`poke_room_${roomId}_blacklist`) || '[]');
-      if (!roomState.isHost && blacklist.includes(roomState.playerName)) {
-        localStorage.removeItem(`poke_session_${roomId}`);
-        window.location.href = '/';
-        return;
-      }
-
-      let currentPlayers = JSON.parse(localStorage.getItem(roomKey) || '[]');
-      const active = JSON.parse(localStorage.getItem(lastActiveKey) || '{}');
-      const now = Date.now();
-
-      // Registration
-      if (hasJoined && roomState.playerName) {
-        const existingIdx = currentPlayers.findIndex(p => p.name === roomState.playerName);
-        const shouldBeInList = !roomState.isHost || isParticipating;
-
-        if (shouldBeInList && existingIdx === -1) {
-          const globalStartingMoney = JSON.parse(localStorage.getItem(`poke_room_${roomId}_starting_money`) || '1000');
-          const newPlayer = {
-            id: roomState.isHost ? 'host' : `${Date.now()}-${Math.random()}`,
-            name: roomState.playerName,
-            balance: roomState.isHost ? (roomState.startingMoney || globalStartingMoney) : globalStartingMoney,
-            party: [],
-            isHost: roomState.isHost
-          };
-          currentPlayers = [...currentPlayers, newPlayer];
-          localStorage.setItem(roomKey, JSON.stringify(currentPlayers));
-          
-          // Notify other browsers a player joined
-          try {
-            const bc = new BroadcastChannel(`poke_auction_${roomId}`);
-            bc.postMessage({ type: 'PLAYER_JOINED', data: { name: roomState.playerName } });
-            bc.close();
-          } catch (e) {}
-        } else if (!shouldBeInList && existingIdx !== -1) {
-          currentPlayers = currentPlayers.filter(p => p.name !== roomState.playerName);
-          localStorage.setItem(roomKey, JSON.stringify(currentPlayers));
-        }
-      }
-
-      // If Supabase IS working and configured, we let it be the source of truth
-      // Otherwise, the polling below updates the state from LocalStorage
-      if (!isSupabaseConfigured) {
-        // Force player list sync for everyone
-        setPlayers(currentPlayers);
-
-        // POLL RELEVANT SETTINGS
-        const timeDur = JSON.parse(localStorage.getItem(`poke_room_${roomId}_timer_duration`) || '30');
-        const startBid = JSON.parse(localStorage.getItem(`poke_room_${roomId}_starting_bid`) || '0');
-        const startMoney = JSON.parse(localStorage.getItem(`poke_room_${roomId}_starting_money`) || '1000');
-        const maxP = JSON.parse(localStorage.getItem(`poke_room_${roomId}_max_pokemon`) || '6');
-        
-        // Only update local state if it differs to prevent input flicker for host
-        if (!roomState.isHost) {
-          setTimerDuration(timeDur);
-          setStartingBid(startBid);
-          setRoomState(prev => ({ ...prev, startingMoney: startMoney }));
-          setMaxPokemon(maxP);
-        }
-
-        if (roomState.isHost) {
-          const cleanedPlayers = currentPlayers.filter(p => {
-            const lastSeen = active[p.name] || 0;
-            return (now - lastSeen) < 15000 || (lastSeen === 0 && p.id.toString().includes('-'));
-          });
-          if (JSON.stringify(cleanedPlayers) !== JSON.stringify(currentPlayers)) {
-            localStorage.setItem(roomKey, JSON.stringify(cleanedPlayers));
-            setPlayers(cleanedPlayers);
-          } else {
-            setPlayers(currentPlayers);
-          }
-
-          // Pull state from localstorage
-          const index = JSON.parse(localStorage.getItem(`poke_room_${roomId}_index`) || '-1');
-          const bid = JSON.parse(localStorage.getItem(`poke_room_${roomId}_bid`) || '0');
-          const bidder = JSON.parse(localStorage.getItem(`poke_room_${roomId}_bidder`) || 'null');
-          const bidderIdx = JSON.parse(localStorage.getItem(`poke_room_${roomId}_bidder_index`) || '0');
-          const isDesc = JSON.parse(localStorage.getItem(`poke_room_${roomId}_descending`) || 'true');
-          const actRound = JSON.parse(localStorage.getItem(`poke_room_${roomId}_actual_round`) || '1');
-          const activeState = JSON.parse(localStorage.getItem(`poke_room_${roomId}_active`) || 'false');
-          const gameActive = JSON.parse(localStorage.getItem(`poke_room_${roomId}_active_game`) || 'false');
-          const hist = JSON.parse(localStorage.getItem(`poke_room_${roomId}_history`) || '[]');
-          const savedPool = JSON.parse(localStorage.getItem(`poke_room_${roomId}_pool`) || '[]');
-          const timeDur = JSON.parse(localStorage.getItem(`poke_room_${roomId}_timer_duration`) || '30');
-          const startBid = JSON.parse(localStorage.getItem(`poke_room_${roomId}_starting_bid`) || '0');
-          const maxP = JSON.parse(localStorage.getItem(`poke_room_${roomId}_max_pokemon`) || '6');
-
-          setCurrentPokemonIndex(index);
-          setCurrentBid(bid);
-          setHighestBidder(bidder);
-          setCurrentBidderIndex(bidderIdx);
-          setIsSnakeDescending(isDesc);
-          setActualRound(actRound);
-          setIsBiddingActive(activeState);
-          setIsAuctionStarted(gameActive);
-          setHistory(hist);
-          setPokemonPool(savedPool);
-        } else {
-          const index = JSON.parse(localStorage.getItem(`poke_room_${roomId}_index`) || '-1');
-          const bid = JSON.parse(localStorage.getItem(`poke_room_${roomId}_bid`) || '0');
-          const bidder = JSON.parse(localStorage.getItem(`poke_room_${roomId}_bidder`) || 'null');
-          const bidderIdx = JSON.parse(localStorage.getItem(`poke_room_${roomId}_bidder_index`) || '0');
-          const isDesc = JSON.parse(localStorage.getItem(`poke_room_${roomId}_descending`) || 'true');
-          const actRound = JSON.parse(localStorage.getItem(`poke_room_${roomId}_actual_round`) || '1');
-          const activeState = JSON.parse(localStorage.getItem(`poke_room_${roomId}_active`) || 'false');
-          const gameActive = JSON.parse(localStorage.getItem(`poke_room_${roomId}_active_game`) || 'false');
-          const hist = JSON.parse(localStorage.getItem(`poke_room_${roomId}_history`) || '[]');
-          const savedPool = JSON.parse(localStorage.getItem(`poke_room_${roomId}_pool`) || '[]');
-          const timeDur = JSON.parse(localStorage.getItem(`poke_room_${roomId}_timer_duration`) || '30');
-          const startBid = JSON.parse(localStorage.getItem(`poke_room_${roomId}_starting_bid`) || '0');
-          const maxP = JSON.parse(localStorage.getItem(`poke_room_${roomId}_max_pokemon`) || '6');
-          
-          setCurrentPokemonIndex(index);
-          setCurrentBid(bid);
-          setHighestBidder(bidder);
-          setCurrentBidderIndex(bidderIdx);
-          setIsSnakeDescending(isDesc);
-          setActualRound(actRound);
-          setIsBiddingActive(activeState);
-          setIsAuctionStarted(gameActive);
-          setHistory(hist);
-          setPokemonPool(savedPool);
-          setPlayers(currentPlayers);
-        }
-      } else {
-        // Even with Supabase, we need to show the local player list in the UI for the host
-        setPlayers(currentPlayers);
-      }
-    }, 1000);
-
     return () => {
       if (supabaseChannel) {
         try { supabase.removeChannel(supabaseChannel); } catch (e) {}
       }
       channel.close();
-      clearInterval(syncInterval);
       clearInterval(heartbeat);
     };
   }, [roomId, roomState.isHost, roomState.playerName, hasJoined, isParticipating]);
@@ -714,27 +533,6 @@ export default function AuctionRoom() {
     if (updates.max_pokemon !== undefined) setMaxPokemon(updates.max_pokemon);
     if (updates.bidders_in_round) setBiddersInRound(updates.bidders_in_round);
     if (updates.time_left !== undefined) setTimeLeft(updates.time_left);
-
-    // 2. Local Persistence (Source of Truth for same-machine)
-    if (updates.participants) localStorage.setItem(`poke_room_${roomId}_players`, JSON.stringify(updates.participants));
-    if (updates.pool) localStorage.setItem(`poke_room_${roomId}_pool`, JSON.stringify(updates.pool));
-    if (updates.current_index !== undefined) localStorage.setItem(`poke_room_${roomId}_index`, JSON.stringify(updates.current_index));
-    if (updates.current_bid !== undefined) localStorage.setItem(`poke_room_${roomId}_bid`, JSON.stringify(updates.current_bid));
-    if (updates.is_active !== undefined) localStorage.setItem(`poke_room_${roomId}_active`, JSON.stringify(updates.is_active));
-    if (updates.is_started !== undefined) localStorage.setItem(`poke_room_${roomId}_started`, JSON.stringify(updates.is_started));
-    if (updates.is_active_game !== undefined) localStorage.setItem(`poke_room_${roomId}_active_game`, JSON.stringify(updates.is_active_game));
-    if (updates.highest_bidder !== undefined) localStorage.setItem(`poke_room_${roomId}_bidder`, JSON.stringify(updates.highest_bidder));
-    if (updates.history) localStorage.setItem(`poke_room_${roomId}_history`, JSON.stringify(updates.history));
-    if (updates.nomination_order) localStorage.setItem(`poke_room_${roomId}_nom_order`, JSON.stringify(updates.nomination_order));
-    if (updates.nominee_index !== undefined) localStorage.setItem(`poke_room_${roomId}_nom_index`, JSON.stringify(updates.nominee_index));
-    if (updates.bidder_index !== undefined) localStorage.setItem(`poke_room_${roomId}_bidder_index`, JSON.stringify(updates.bidder_index));
-    if (updates.bidders_in_round) localStorage.setItem(`poke_room_${roomId}_bidders_round`, JSON.stringify(updates.bidders_in_round));
-    if (updates.is_descending !== undefined) localStorage.setItem(`poke_room_${roomId}_descending`, JSON.stringify(updates.is_descending));
-    if (updates.actual_round !== undefined) localStorage.setItem(`poke_room_${roomId}_actual_round`, JSON.stringify(updates.actual_round));
-    if (updates.timer_duration !== undefined) localStorage.setItem(`poke_room_${roomId}_timer_duration`, JSON.stringify(updates.timer_duration));
-    if (updates.starting_bid !== undefined) localStorage.setItem(`poke_room_${roomId}_starting_bid`, JSON.stringify(updates.starting_bid));
-    if (updates.starting_money !== undefined) localStorage.setItem(`poke_room_${roomId}_starting_money`, JSON.stringify(updates.starting_money));
-    if (updates.max_pokemon !== undefined) localStorage.setItem(`poke_room_${roomId}_max_pokemon`, JSON.stringify(updates.max_pokemon));
 
     // 2. Database (Production Sync only)
     if (isSupabaseConfigured) {
@@ -1277,27 +1075,23 @@ export default function AuctionRoom() {
           )}
           {roomState.isHost && (
             <button 
-              onClick={() => {
+              onClick={async () => {
                 const next = !isParticipating;
                 setIsParticipating(next);
                 setRoomState(prev => ({ ...prev, isParticipating: next }));
-                // Force an immediate registration update
-                const roomKey = `poke_room_${roomId}_players`;
-                let currentPlayers = JSON.parse(localStorage.getItem(roomKey) || '[]');
-                if (next) {
-                  if (!currentPlayers.find(p => p.id === 'host')) {
-                    const newPlayer = {
+                
+                // Immediate sync to Supabase
+                const updatedPlayers = next 
+                  ? (players.some(p => p.id === 'host') ? players : [...players, {
                       id: 'host',
                       name: roomState.playerName || 'Host',
                       balance: roomState.startingMoney || 1000,
                       party: [],
                       isHost: true
-                    };
-                    localStorage.setItem(roomKey, JSON.stringify([...currentPlayers, newPlayer]));
-                  }
-                } else {
-                  localStorage.setItem(roomKey, JSON.stringify(currentPlayers.filter(p => p.id !== 'host')));
-                }
+                    }])
+                  : players.filter(p => p.id !== 'host');
+                
+                await updateRoomState({ participants: updatedPlayers });
               }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all border ${
                 isParticipating 
