@@ -118,9 +118,15 @@ export default function AuctionRoom() {
     if (updates.current_bid !== undefined) setCurrentBid(updates.current_bid);
     if (updates.highest_bidder !== undefined) setHighestBidder(updates.highest_bidder);
     if (updates.is_active !== undefined) setIsBiddingActive(updates.is_active);
-    if (updates.is_active_game !== undefined) setIsAuctionStarted(updates.is_active_game);
+    
+    // Map is_active_game to isAuctionStarted
+    const isStarted = updates.is_started !== undefined ? updates.is_started : updates.is_active_game;
+    if (isStarted !== undefined) setIsAuctionStarted(isStarted);
+
     if (updates.history) setHistory(updates.history);
     if (updates.nominee_index !== undefined) setCurrentNomineeIndex(updates.nominee_index);
+    if (updates.bidder_index !== undefined) setCurrentBidderIndex(updates.bidder_index);
+    if (updates.nomination_order) setNominationOrder(updates.nomination_order);
     if (updates.is_descending !== undefined) setIsSnakeDescending(updates.is_descending);
     if (updates.actual_round !== undefined) setActualRound(updates.actual_round);
     if (updates.timer_duration !== undefined) setTimerDuration(updates.timer_duration);
@@ -131,12 +137,39 @@ export default function AuctionRoom() {
     if (updates.time_left !== undefined) setTimeLeft(updates.time_left);
     if (updates.is_finalized !== undefined) setIsDraftFinalized(updates.is_finalized);
 
+    if (updates.win_ceremony) {
+      setLastWinData(updates.win_ceremony);
+      setShowWinCeremony(true);
+      setTimeout(() => setShowWinCeremony(false), 4000);
+    }
+
     // 2. Database (Production Sync only)
     if (isSupabaseConfigured) {
-      await db.update('rooms', roomId, {
-        ...updates,
-        last_activity_at: new Date().toISOString()
+      // Filter out keys not in the database schema to avoid 400 errors (PGRST204)
+      const dbPayload = {};
+      const validColumns = [
+        'pool', 'current_index', 'current_bid', 'is_active', 
+        'is_started', 'highest_bidder', 'history', 'participants', 
+        'nominee_index', 'bidder_index', 'nomination_order', 
+        'bidders_in_round', 'is_descending', 'actual_round', 
+        'timer_duration', 'starting_bid', 'max_pokemon', 
+        'time_left', 'is_finalized', 'starting_money'
+      ];
+
+      validColumns.forEach(col => {
+        if (updates[col] !== undefined) dbPayload[col] = updates[col];
       });
+
+      // Special mapping for is_active_game -> is_started
+      if (updates.is_active_game !== undefined) {
+        dbPayload.is_started = updates.is_active_game;
+      }
+
+      // If nothing to update, skip
+      if (Object.keys(dbPayload).length === 0) return;
+
+      const { error } = await db.update('rooms', roomId, dbPayload);
+      if (error) console.error('[Supabase Update Error]', error);
     }
   }, [roomId]);
 
@@ -471,7 +504,11 @@ export default function AuctionRoom() {
       if (data.current_bid !== undefined) setCurrentBid(data.current_bid);
       if (data.highest_bidder !== undefined) setHighestBidder(data.highest_bidder);
       if (data.is_active !== undefined) setIsBiddingActive(data.is_active);
-      if (data.is_active_game !== undefined) setIsAuctionStarted(data.is_active_game);
+
+      // Map DB field is_started or legacy is_active_game to local state
+      const isStarted = data.is_started !== undefined ? data.is_started : data.is_active_game;
+      if (isStarted !== undefined) setIsAuctionStarted(isStarted);
+
       if (data.history) setHistory(data.history);
       if (data.nomination_order) setNominationOrder(data.nomination_order);
       if (data.nominee_index !== undefined) setCurrentNomineeIndex(data.nominee_index);
@@ -555,38 +592,51 @@ export default function AuctionRoom() {
     };
   }, [roomId, roomState.isHost, roomState.playerName]);
 
-  // Separate Heartbeat Effect
+  // Separate Heartbeat Effect (Disabled if causing issues)
   useEffect(() => {
     if (!roomId || !hasJoined || !roomState.playerName || !isSupabaseConfigured) return;
 
+    // Heartbeat disabled for now to resolve 400 Bad Request issues
+    /*
     const heartbeat = setInterval(() => {
       supabase.from('rooms').update({ last_activity_at: new Date().toISOString() }).eq('id', roomId)
         .then(() => {}).catch(e => console.error('Heartbeat failed', e)); 
     }, 30000);
-
     return () => clearInterval(heartbeat);
+    */
   }, [roomId, hasJoined, roomState.playerName]);
 
   // Immediate sync when participation changes
   useEffect(() => {
-    if (roomState.isHost && hasJoined) {
-      const existingIdx = players.findIndex(p => p.name === roomState.playerName);
+    const syncHost = async () => {
+      if (roomState.isHost && hasJoined && isParticipating) {
+        // Fetch latest to avoid race conditions
+        let latest = [];
+        if (isSupabaseConfigured) {
+          const { data } = await supabase.from('rooms').select('participants').eq('id', roomId).single();
+          latest = data?.participants || [];
+        } else {
+          latest = players;
+        }
 
-      if (isParticipating && existingIdx === -1) {
-        const newPlayer = {
-          id: 'host',
-          name: roomState.playerName,
-          balance: roomState.startingMoney || 1000,
-          party: [],
-          isHost: true
-        };
-        updateRoomState({ participants: [...players, newPlayer] });
-      } else if (!isParticipating && existingIdx !== -1) {
-        const updated = players.filter(p => p.name !== roomState.playerName);
-        updateRoomState({ participants: updated });
+        const existingIdx = latest.findIndex(p => p.name === roomState.playerName);
+        if (existingIdx === -1) {
+          const newHostPlayer = {
+            id: 'host',
+            name: roomState.playerName || 'Host',
+            balance: roomState.startingMoney || 1000,
+            party: [],
+            isHost: true
+          };
+          await updateRoomState({ participants: [...latest, newHostPlayer] });
+        }
       }
+    };
+    
+    if (roomState.isHost && hasJoined) {
+      syncHost();
     }
-  }, [isParticipating, hasJoined, roomState.isHost, roomState.playerName, roomState.startingMoney, players, updateRoomState]);
+  }, [isParticipating, hasJoined, roomState.isHost, roomState.playerName, roomState.startingMoney, roomId, updateRoomState]);
 
 
   // ==========================================
@@ -624,42 +674,57 @@ export default function AuctionRoom() {
     const cleanName = tempName.trim();
     if (!cleanName) return;
     
-    // Check if player already exists in the room list
-    const existingPlayer = players.find(p => p.name.toLowerCase() === cleanName.toLowerCase());
-    
+    setIsConnectionLoading(true);
+
+    let latestParticipants = [];
+    if (isSupabaseConfigured) {
+      try {
+        const { data } = await supabase.from('rooms').select('participants').eq('id', roomId).single();
+        if (data && data.participants) {
+          latestParticipants = data.participants;
+        }
+      } catch (err) {
+        console.error('Failed to fetch participants', err);
+      }
+    } else {
+      latestParticipants = players;
+    }
+
+    const sessionName = cleanName;
+    const existingPlayer = latestParticipants.find(p => p.name.toLowerCase() === sessionName.toLowerCase());
     const isForcedNew = new URLSearchParams(window.location.search).get('new_player') === 'true';
+    
     const newState = { 
       ...roomState, 
-      playerName: existingPlayer ? existingPlayer.name : cleanName, 
-      isHost: false,
-      isParticipating: !!existingPlayer
+      playerName: existingPlayer ? existingPlayer.name : sessionName, 
+      isHost: roomState.isHost,
+      isParticipating: true
     };
 
     setRoomState(newState);
-    
-    // Use the name they type or the exact case-match from the server
-    const sessionName = existingPlayer ? existingPlayer.name : cleanName;
     const sessionKey = isForcedNew 
-      ? `poke_session_${roomId}_${sessionName}` 
+      ? `poke_session_${roomId}_${newState.playerName}` 
       : `poke_session_${roomId}`;
       
     localStorage.setItem(sessionKey, JSON.stringify(newState));
     setHasJoined(true);
+    setIsParticipating(true);
     
-    // Only add to Supabase if they don't exist yet
     if (!existingPlayer) {
       const globalStartingMoney = roomState.startingMoney || 1000;
       const newPlayer = {
         id: `${Date.now()}-${Math.random()}`,
-        name: sessionName,
+        name: newState.playerName,
         balance: globalStartingMoney,
         party: [],
-        isHost: false
+        isHost: roomState.isHost
       };
       
-      const updated = [...players, newPlayer];
+      const updated = [...latestParticipants, newPlayer];
       await updateRoomState({ participants: updated });
     }
+    
+    setIsConnectionLoading(false);
   };
 
   const handleStartingMoneyChange = (val) => {
