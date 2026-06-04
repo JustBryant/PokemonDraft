@@ -415,7 +415,12 @@ export default function AuctionRoom() {
     };
 
   useEffect(() => {
-    if (!roomId) return;
+    // If there's no room ID or Supabase isn't configured, stop loading immediately
+    if (!roomId || !isSupabaseConfigured) {
+      console.log('[Sync] Initialization bypassed:', { roomId, isSupabaseConfigured });
+      setIsConnectionLoading(false);
+      return;
+    }
 
     // 0. BroadcastChannel for Cross-Browser/Tab Sync
     const channel = new BroadcastChannel(`poke_auction_${roomId}`);

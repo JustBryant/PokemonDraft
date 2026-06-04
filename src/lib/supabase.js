@@ -1,11 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 
-// If you have a real Supabase URL and Key, replace these placeholders.
-// Otherwise, the app will fall back to LocalStorage mode to prevent CORS errors.
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Robustly clean the URL to prevent common configuration mistakes
+let supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+if (supabaseUrl.includes('/rest/v1')) {
+  supabaseUrl = supabaseUrl.split('/rest/v1')[0];
+}
+// Remove trailing slashes
+supabaseUrl = supabaseUrl.replace(/\/+$/, '');
 
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey && supabaseUrl !== 'https://placeholder-url.supabase.co');
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+export const isSupabaseConfigured = !!(
+  supabaseUrl && 
+  supabaseAnonKey && 
+  supabaseUrl !== 'https://placeholder-url.supabase.co' &&
+  supabaseUrl.startsWith('https://')
+);
 
 export const supabase = isSupabaseConfigured 
   ? createClient(supabaseUrl, supabaseAnonKey)
