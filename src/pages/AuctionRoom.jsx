@@ -88,9 +88,17 @@ export default function AuctionRoom() {
   if (isConnectionLoading) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-4">
-        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
         <h2 className="text-xl font-bold italic uppercase tracking-widest">Connecting to Room...</h2>
-        <p className="text-slate-400 mt-2">Checking Supabase connection</p>
+        <p className="text-slate-400 mt-2 mb-8">Checking Supabase connection</p>
+        
+        {/* Anti-hang fallback button */}
+        <button 
+          onClick={() => setIsConnectionLoading(false)}
+          className="text-xs text-slate-500 hover:text-white underline transition-colors"
+        >
+          Taking too long? Click to enter anyway
+        </button>
       </div>
     );
   }
@@ -488,40 +496,42 @@ export default function AuctionRoom() {
         }
       };
 
-      const fetchRoom = async () => {
-        try {
-          const { data, error } = await supabase.from('rooms').select('*').eq('id', roomId).single();
-          if (data) {
-            updateLocalState(data);
-            setIsConnectionLoading(false);
-            clearTimeout(loadingTimeout);
-          } else if (error?.code === 'PGRST116' || !error) {
-            // Room doesn't exist. We'll only create it if we are the host.
-            // Check local storage for host status as a backup to avoid dependency loop
-            const session = JSON.parse(localStorage.getItem(`poke_session_${roomId}`) || '{}');
-            const isHost = session.isHost || new URLSearchParams(window.location.search).get('host') === 'true';
-            
-            if (isHost) {
-              console.log('[Supabase] Room not found, creating as host...');
-              await supabase.from('rooms').insert([{
-                id: roomId,
-                host_id: session.playerName || 'Host',
-                participants: [],
-                pool: [],
-                current_index: -1,
-                is_started: false
-              }]);
-            }
-            setIsConnectionLoading(false);
-            clearTimeout(loadingTimeout);
+    const fetchRoom = async () => {
+      try {
+        console.log('[Supabase] Fetching room data...');
+        const { data, error } = await supabase.from('rooms').select('*').eq('id', roomId).single();
+        
+        if (data) {
+          console.log('[Supabase] Room data found.');
+          updateLocalState(data);
+        } else if (error) {
+          console.error('[Supabase] Error fetching room:', error);
+          
+          // Room doesn't exist. We'll only create it if we are the host.
+          const session = JSON.parse(localStorage.getItem(`poke_session_${roomId}`) || '{}');
+          const isHost = session.isHost || new URLSearchParams(window.location.search).get('host') === 'true';
+          
+          if (isHost && (error.code === 'PGRST116' || error.message?.includes('0 rows'))) {
+            console.log('[Supabase] Room not found, creating as host...');
+            await supabase.from('rooms').insert([{
+              id: roomId,
+              host_id: session.playerName || 'Host',
+              participants: [],
+              pool: [],
+              current_index: -1,
+              is_started: false
+            }]);
           }
-        } catch (err) {
-          console.error('[Supabase Fetch Error]', err);
-          setIsConnectionLoading(false);
-          clearTimeout(loadingTimeout);
         }
-      };
-      fetchRoom();
+      } catch (err) {
+        console.error('[Supabase Catch] Fatal fetch error:', err);
+      } finally {
+        // ALWAYS clear loading after the first network attempt
+        setIsConnectionLoading(false);
+        clearTimeout(loadingTimeout);
+      }
+    };
+    fetchRoom();
 
       try {
         supabaseChannel = supabase.channel(`room:${roomId}`).on('postgres_changes', { 
